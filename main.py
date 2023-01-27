@@ -41,78 +41,138 @@ class Zhed:
 
 
 class Grid(tk.Frame):
-    # TODO create a grid of frames then pack each widget inside with expand=true
-    def __init__(self, w, h, widget_init, master=None, *args, **kwargs):
+    class Constants(Enum):
+        CELL = 'cell'
+        GRID = 'grid'
+    CELL = Constants.CELL
+    GRID = Constants.GRID
+
+    def __init__(self, dim, widget_init, size=None, size_type=None, master=None, *args, **kwargs):
         super().__init__(master)
         self.widget_init = widget_init
         self.args = args
         self.kwargs = kwargs.copy()
         self.dummy = tk.Frame(self)
         self.dummy.grid()
-        self.widgets = []
-        self._mkgrid(0, 0, w, h)
+        if size is None or size_type is None:
+            size = None
+            size_type = None
+        self._mkgrid((0, 0), dim, size=size, size_type=size_type)
 
-    def _mkgrid(self, oldw, oldh, neww, newh):
-        # TODO current implementation creates only the bottom right section of the new, bigger, grid.
-        # It should also create the top right and bottom left sections.
-        # Also doesn't make the grid smaller.
-        self.w = neww
-        self.h = newh
-        for iw in range(oldw, neww):
-            widgets_w = []
-            self.widgets.append(widgets_w)
-            for ih in range(oldh, newh):
-                widget = self.widget_init(*self.args, **dict(self.kwargs, master=self.dummy))
-                widgets_w.append(widget)
-                widget.grid(column=iw, row=ih)
+    def _mkwidget(self, iw, ih, size_cell=None):
+        if size_cell is not None:
+            frame = tk.Frame(master=self.dummy, width=size_cell[0], height=size_cell[1])
+            frame.grid_propagate(False)
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_rowconfigure(0, weight=1)
+        else:
+            frame = tk.Frame(master=self)
+        widget = self.widget_init(master=frame, *self.args, **self.kwargs)
+        frame.grid(column=iw, row=ih)
+        widget.grid(sticky='news')
+        return widget
+
+    def _mkgrid(self, dim_old, dim_new, size=None, size_type=None):
+        self.dim = tuple(dim_new)
+        if size is not None:
+            self.size = tuple(size)
+            self.size_type = size_type
+            if size_type == Grid.GRID:
+                size_cell = (size[0] // dim_new[0], size[1] // dim_new[1])
+            elif size_type == Grid.CELL:
+                size_cell = size
+        if dim_new[0] > dim_old[0]:
+            for iw in range(dim_old[0], dim_new[0]):
+                for ih in range(min(dim_old[1], dim_new[1])):
+                    self._mkwidget(iw, ih, size_cell=size_cell)
+        if dim_new[1] > dim_old[1]:
+            for iw in range(min(dim_old[0], dim_new[0])):
+                for ih in range(dim_old[1], dim_new[1]):
+                    self._mkwidget(iw, ih, size_cell=size_cell)
+        for iw in range(dim_old[0], dim_new[0]):
+            for ih in range(dim_old[1], dim_new[1]):
+                self._mkwidget(iw, ih, size_cell=size_cell)
 
     @staticmethod
-    def reset(widget, w, h):
+    def _reset(widget, index):
         raise NotImplementedError
 
-    def change_dim(self, w, h, identical, reset=None, *args, **kwargs):
-        if self.w == w and self.h == h:
-            for iw in range(w):
-                for ih in range(h):
-                    if reset is None:
-                        reset = self.reset
-                    reset(self.widgets[iw][ih], iw, ih)
-        else:
+    def apply(self, func):
+        for iw in range(self.dim[0]):
+            for ih in range(self.dim[1]):
+                func(self.dummy.grid_slaves(column=iw, row=ih)[0].grid_slaves()[0], (iw, ih))
+
+    def change_dim(self, dim, identical, conserve_size=None, size=None, size_type=None, *args, **kwargs):
+        if self.dim != dim:
+            if conserve_size is not None:
+                if conserve_size:
+                    size = self.size
+                    size_type = self.size_type
+            elif size is None or size_type is None:
+                size = None
+                size_type = None
+            if size_type == Grid.GRID:
+                size_cell = (size[0] // dim[0], size[1] // dim[1])
+            elif size_type == Grid.CELL:
+                size_cell = size
             if identical:
-                self._mkgrid(self.w, self.h, w, h)
+                if size_type == Grid.GRID:
+                    for iw in range(min(self.dim[0], dim[0])):
+                        for ih in range(min(self.dim[1], dim[1])):
+                            self.dummy.grid_slaves(column=iw, row=ih)[0].configure(width=size_cell[0], height=size_cell[1])
+                if dim[0] < self.dim[0]:
+                    for iw in reversed(range(dim[0], self.dim[0])):
+                        for ih in reversed(range(self.dim[1])):
+                            self.dummy.grid_slaves(column=iw, row=ih)[0].destroy()
+                if dim[1] < self.dim[1]:
+                    for iw in reversed(range(min(self.dim[0], dim[0]))):
+                        for ih in reversed(range(dim[1], self.dim[1])):
+                            self.dummy.grid_slaves(column=iw, row=ih)[0].destroy()
+
+                self._mkgrid(self.dim, dim, size=size, size_type=size_type)
             else:
                 self.dummy.destroy()
                 self.dummy = tk.Frame(self)
                 self.dummy.grid()
-                self.widgets.clear()
                 self.args = args
                 self.kwargs = kwargs.copy()
-                self._mkgrid(0, 0, w, h)
-
-    def apply(self, func):
-        for iw in range(self.w):
-            for ih in range(self.h):
-                func(self.widgets[iw][ih], iw, ih)
+                self._mkgrid((0, 0), dim, size=size, size_type=size_type)
 
 
-class EntryGrid(Grid):
-    def __init__(self, w, h, master=None, *args, **kwargs):
-        super().__init__(w, h, tk.Entry, master=master, *args, **kwargs)
+class GameGrid(Grid):
+    def __init__(self, dim, master=None, size=None, size_type=None):
+        super().__init__(dim, GameGrid._btn_init, master=master, size=size, size_type=size_type)
 
     @staticmethod
-    def reset(entry, w, h):
-        entry.delete(0, tk.END)
+    def _btn_init(master=None, *args, **kwargs):
+        btn = tk.Button(master=master, bg='grey')
+        def _command():
+            if btn.cget('bg') == 'grey':
+                btn.configure(bg='green')
+            else:
+                btn.destroy()
+                entry = tk.Entry(master=master)
+                entry.grid(sticky='news')
+        btn.configure(command=_command)
+        return btn
 
-    def clear(self):
-        self.apply(EntryGrid.reset)
+    @staticmethod
+    def _reset(cell, index):
+        master = cell.master
+        cell.destroy()
+        cell = GameGrid._btn_init(master=master)
+        cell.grid(sticky='news')
+
+    def reset(self):
+        self.apply(GameGrid._reset)
 
     # TODO REWRITE
     def get(self):
         cells = []
-        for iw in range(self.w):
+        for iw in range(self.dim[0]):
             cells_w = []
             cells.append(cells_w)
-            for ih in range(self.h):
+            for ih in range(self.dim[1]):
                 value = self.widgets[iw][ih].get().strip().lower()
                 if 'goal' == value:
                     cells_w.append(Zhed.Grid.GOAL)
@@ -133,48 +193,52 @@ class EntryGrid(Grid):
         return cells
 
 
-class LabelGrid(Grid):
-    def __init__(self, w, h, master=None, *args, **kwargs):
-        super().__init__(w, h, tk.Label, master=master, *args, **kwargs)
+class SolGrid(Grid):
+    def __init__(self, dim, master=None, size=None, size_type=None, *args, **kwargs):
+        super().__init__(dim, tk.Label, master=master, size=size, size_type=size_type, *args, **kwargs)
 
     @staticmethod
-    def reset(label, w, h):
+    def _reset(label, index):
         pass
 
 
 class App(tk.Frame):
-    # TODO figure out how to lay this thing correctly...
     def __init__(self, title, master=None):
         super().__init__(master)
         self.master.title(title)
-        self.master.minsize(width=200, height=80)
-        self.grid(sticky='news')
+        self.master.minsize(width=150, height=0)
+        self.master.grid_columnconfigure(0, weight=1)
+        self.master.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid(sticky='news')
 
         self.upper = tk.Frame(self)
-        self.upper.grid(column=0, row=0, sticky='new')
+        for i in range(3):
+            self.upper.grid_columnconfigure(i, weight=1)
+            self.upper.grid_rowconfigure(i, weight=1)
+        self.upper.grid_columnconfigure(1, weight=0)
+        self.upper.grid(column=0, row=0, sticky='news')
 
         self.label_dims = tk.Label(self.upper, text='Grid dimensions')
-        self.entry_dimw = tk.Entry(self.upper, width=5)
+        self.entry_dimw = tk.Entry(self.upper, width=1)
         self.label_dimxdim = tk.Label(self.upper, text=' X')
-        self.entry_dimh = tk.Entry(self.upper, width=5)
+        self.entry_dimh = tk.Entry(self.upper, width=1)
         self.label_dims.grid(column=0, columnspan=3, row=0)
         self.entry_dimw.grid(column=0, row=1, sticky='ew')
-        self.label_dimxdim.grid(column=1, row=1, sticky='ew')
+        self.label_dimxdim.grid(column=1, row=1)
         self.entry_dimh.grid(column=2, row=1, sticky='ew')
 
-        def command_clear():
-            self.gridgame.clear()
-
         def command_solve():
-            res = self.gridgame.get()
+            #res = self.gridgame.get()
             # TODO CHECK RESULT
-            zhed = Zhed(res)
-            zhed.solve()
-            print(zhed)
+            #zhed = Zhed(res)
+            #zhed.solve()
+            #print(zhed)
             self.gridsol.grid()
-
-        def command_reset():
+            self.gridgame.grid_configure(columnspan=3)
+        def command_set():
             try:
                 w = int(self.entry_dimw.get())
                 h = int(self.entry_dimh.get())
@@ -183,9 +247,10 @@ class App(tk.Frame):
             except ValueError:
                 showerror('Dimension Error', 'Please enter positive integer dimensions!')
                 return
-            self.gridgame.change_dim(w, h, True)
-            self.gridsol.change_dim(w, h, True)
-
+            self.gridgame.change_dim((w, h), True, conserve_size=True)
+            self.gridsol.change_dim((w, h), True, conserve_size=True)
+            self.gridsol.grid_remove()
+            self.gridgame.grid_configure(columnspan=6)
         def command_start():
             try:
                 w = int(self.entry_dimw.get())
@@ -197,24 +262,30 @@ class App(tk.Frame):
                 return
 
             self.lower = tk.Frame(self)
-            self.lower.grid(column=0, row=1, sticky='ews')
+            for i in range(6):
+                self.lower.grid_columnconfigure(i, weight=1)
+            for i in range(2):
+                self.lower.grid_rowconfigure(i, weight=1)
+            self.lower.grid(column=0, row=1, sticky='news')
 
-            self.gridgame = EntryGrid(w, h, self.lower, width=5)
-            self.gridsol = LabelGrid(w, h, master=self.lower, text='cell')
-            self.button_clear = tk.Button(self.lower, text='Clear', command=command_clear)
+            self.gridgame = GameGrid((w, h), master=self.lower, size=(25, 25), size_type=Grid.CELL)
+            self.gridsol = SolGrid((w, h), master=self.lower, size=(25, 25), size_type=Grid.CELL, text='cell')
+            self.button_reset = tk.Button(self.lower, text='Reset', command=self.gridgame.reset)
             self.button_solve = tk.Button(self.lower, text='Solve', command=command_solve)
 
-            self.gridgame.grid(column=1, columnspan=1, row=0, sticky='nws')
-            self.gridsol.grid(column=4, columnspan=1, row=0, sticky='nes')
-            # self.gridsol.grid_remove()
-            self.button_clear.grid(column=0, columnspan=3, row=1, sticky='new')
-            self.button_solve.grid(column=3, columnspan=3, row=1, sticky='new')
-            self.button_startreset.configure(text='Reset', command=command_reset)
+            self.gridgame.grid(column=0, columnspan=6, row=0, sticky='nws')
+            self.gridsol.grid(column=3, columnspan=3, row=0, sticky='nes')
+            self.gridsol.grid_remove()
 
-        self.button_startreset = tk.Button(self.upper, text='Start', command=command_start)
-        self.button_startreset.grid(column=0, columnspan=3, row=2, sticky='new')
+            self.button_reset.grid(column=0, columnspan=2, row=1, sticky='new')
+            self.button_solve.grid(column=2, columnspan=4, row=1, sticky='new')
+            self.button_start.configure(text='Set dimensions', command=command_set)
+
+        self.button_start = tk.Button(self.upper, text='Start', command=command_start)
+        self.button_start.grid(column=0, columnspan=3, row=2, sticky='new')
 
 
 if __name__ == '__main__':
     app = App('Zhed')
     app.mainloop()
+
