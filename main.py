@@ -5,39 +5,121 @@ from tkinter.messagebox import showerror
 from tkinter import font
 
 
-# TODO IMPLEMENTATION
-class Zhed:
-    class Grid:
-
+class ZhedTree:
+    class Cell:
         class Constants(Enum):
             GOAL = -1
-            EMPTY = 0
+            UNUSED = 0
 
         GOAL = Constants.GOAL
-        EMPTY = Constants.EMPTY
+        UNUSED = Constants.UNUSED
 
-        def __init__(self, cells):
-            self.w = len(cells)
-            self.h = len(cells[0])
-            self.cells = []
-            self.goals = []
-            for iw in range(self.w):
-                cells_w = []
-                self.cells.append(cells_w)
-                for ih in range(self.h):
-                    cell = cells[iw][ih]
-                    if cell == Zhed.Grid.GOAL:
-                        self.goals.append([iw, ih])
-                    cells_w.append(cell)
+        def __gt__(self, other):
+            # Because why not risk confusion for a nice looking syntax 1/2
+            s = ''
+            loc1 = self.location
+            loc2 = other.location
+            if loc2[1] > loc1[1]:
+                s += 'up'
+            elif loc2[1] < loc1[1]:
+                s += 'down'
+            if loc2[0] > loc1[0]:
+                s += 'right'
+            elif loc2[0] < loc1[0]:
+                s += 'left'
+            if s == '':
+                s = 'center'  # for ABSOLUTELY no reason!
+            return s
 
-    def __init__(self, cells):
-        self.grid = Zhed.Grid(cells)
-        self.sol = ''
+        def __sub__(self, other):
+            # Because why not risk confusion for a nice looking syntax 2/2
+            # Actually this is more or less vector subtraction...
+            loc1 = self.location
+            loc2 = other.location
+            return other > self, {'up': loc1[1] - loc2[1], 'right': loc1[0] - loc2[0]}
 
-    def solve(self):
+        def __init__(self, node, location, parent=None, children=None, neighbours=None):
+            self.node = node
+            self.location = location
+            self.parent = None
+            if neighbours is not None:
+                self.neighbours['up'] = neighbours['up']
+                self.neighbours['down'] = neighbours['down']
+                self.neighbours['right'] = neighbours['right']
+                self.neighbours['left'] = neighbours['left']
+            else:
+                self.neighbours = {'up': None,
+                                   'down': None,
+                                   'right': None,
+                                   'left': None
+                                   }
+            self.children = []
+            if parent is not None:
+                parent.add_child(self)
+            if children is not None:
+                for child in children:
+                    self.add_child(child)
+
+        def remove_child(self, node):
+            self.children.remove(node)
+            node.parent = None
+            return node
+
+        def add_child(self, node):
+            self.children.append(node)
+            node.parent.remove_child(node)
+            node.parent = self
+
+        def set_neighbours(self, neighbours):
+            self.neighbours['up'] = neighbours['up']
+            self.neighbours['down'] = neighbours['down']
+            self.neighbours['right'] = neighbours['right']
+            self.neighbours['left'] = neighbours['left']
+
+        def up(self):
+            return self.neighbours['up']
+
+        def down(self):
+            return self.neighbours['down']
+
+        def right(self):
+            return self.neighbours['right']
+
+        def left(self):
+            return self.neighbours['left']
+
+    def __init__(self, grid):
+        Cell = ZhedTree.Cell
+
+        self.dim = (len(grid), len(grid[0]))
+        self.grid = grid  # TODO make this a grid of initialized cells (dict of dicts of cells?)
+        self.roots = []
+        for iw in range(self.dim[0]):
+            for ih in range(self.dim[1]):
+                cell = grid[iw][ih]
+                match cell:
+                    case Cell.GOAL:
+                        node = Cell(Cell.GOAL, (iw, ih))
+                        self.roots.append(node)
+                    case Cell.UNUSED:
+                        pass  # Do nothing (lazy initialization)
+                    case _:
+                        node = Cell(cell, (iw, ih))
+                        pass  # TODO somehow find children and parent... this is awful...
+
+    def __getitem__(self, indices):
+        if not isinstance(indices, tuple):
+            indices = tuple(indices)
+        if len(indices) != 2:
+            raise AttributeError
+        return self.grid[indices[0]][indices[1]]
+
+    # TODO IMPLEMENT
+    def _calc_neighbours(self, location):
         pass
 
-    def __str__(self):
+    # TODO milestone!
+    def solve(self):
         pass
 
 
@@ -103,6 +185,7 @@ class Grid(tk.Frame):
             for ih in range(self.dim[1]):
                 func(self.dummy.grid_slaves(column=iw, row=ih)[0].grid_slaves()[0], (iw, ih))
 
+    # TODO can be optimized by reusing "garbage widgets" instead since a reset function is implemented
     def change_dim(self, dim, identical, conserve_size=None, size=None, size_type=None, *args, **kwargs):
         if self.dim != dim:
             if conserve_size is not None:
@@ -141,7 +224,7 @@ class Grid(tk.Frame):
 
 
 class GameGrid(Grid):
-    class COLORS():
+    class COLORS:
         UNUSED = '#E0EEC6'
         GOAL = 'light green'
         NORMAL = '#243E36'
@@ -155,6 +238,7 @@ class GameGrid(Grid):
     @staticmethod
     def _btn_init(master=None, *args, **kwargs):
         btn = tk.Button(master=master, bg=GameGrid.COLORS.UNUSED, border=2, relief='groove')
+
         def _command():
             if btn.cget('bg') == GameGrid.COLORS.UNUSED:
                 btn.configure(bg=GameGrid.COLORS.GOAL, text='GOAL', font=font.Font(size=btn.master.cget('width') // 4, weight='bold'))
@@ -162,15 +246,21 @@ class GameGrid(Grid):
                 btn.destroy()
                 entry = tk.Entry(master=master, bg=GameGrid.COLORS.NORMAL, fg=GameGrid.COLORS.TEXT, font=font.Font(size=12, weight='bold'), justify='center', border=2, relief='groove')
                 entry.grid(sticky='news')
+                entry.focus()
+
         btn.configure(command=_command)
         return btn
 
     @staticmethod
     def _reset(cell, index):
         master = cell.master
-        cell.destroy()
-        cell = GameGrid._btn_init(master=master)
-        cell.grid(sticky='news')
+        if isinstance(cell, tk.Entry):
+            cell.destroy()
+            cell = GameGrid._btn_init(master=master)
+            cell.grid(sticky='news')
+        elif isinstance(cell, tk.Button):
+            if cell.cget('bg') == GameGrid.COLORS.GOAL:
+                cell.configure(text='', bg=GameGrid.COLORS.UNUSED)
 
     def reset(self):
         self.apply(GameGrid._reset)
@@ -178,35 +268,40 @@ class GameGrid(Grid):
     def change_dim(self, dim):
         super().change_dim(dim, True, conserve_size=True)
 
-    # TODO REWRITE
     def get(self):
-        cells = []
+        grid = []
         for iw in range(self.dim[0]):
-            cells_w = []
-            cells.append(cells_w)
-            for ih in range(self.dim[1]):
-                value = self.widgets[iw][ih].get().strip().lower()
-                if 'goal' == value:
-                    cells_w.append(Zhed.Grid.GOAL)
-                elif value == '':
-                    cells_w.append(Zhed.Grid.EMPTY)
-                else:
+            grid_w = []
+            grid.append(grid_w)
+            for ih in reversed(range(self.dim[1])):
+                widget = self.dummy.grid_slaves(column=iw, row=ih)[0].grid_slaves()[0]
+                if isinstance(widget, tk.Button):
+                    bg = widget.cget('bg')
+                    if bg == GameGrid.COLORS.GOAL:
+                        grid_w.append(ZhedTree.Cell.GOAL)
+                    elif bg == GameGrid.COLORS.UNUSED:
+                        grid_w.append(ZhedTree.Cell.UNUSED)
+                elif isinstance(widget, tk.Entry):
                     try:
-                        value = int(value)
-                        if value == -1:
-                            cells_w.append(Zhed.Grid.GOAL)
-                        elif value == 0:
-                            cells_w.append(Zhed.Grid.EMPTY)
+                        value = widget.get().strip().lower()
+                        if value == '':
+                            grid_w.append(ZhedTree.Cell.UNUSED)
                         else:
-                            cells_w.append(value)
+                            value = int(value)
+                            if value < 0:
+                                raise ValueError
+                            if value == 0:
+                                grid_w.append(ZhedTree.Cell.UNUSED)
+                            else:
+                                grid_w.append(value)
                     except ValueError:
-                        showerror(title='', message='')
+                        showerror(title='Cell Value Error', message='Please enter a non-negative cell value!')
                         return None
-        return cells
+        return ZhedTree(grid)
 
 
 class SolGrid(Grid):
-    class COLORS():
+    class COLORS:
         UNUSED = '#E0EEC6'
         GOAL = 'light green'
         NORMAL = '#243E36'
@@ -231,12 +326,16 @@ class SolGrid(Grid):
     def change_dim(self, dim):
         super().change_dim(dim, True, conserve_size=True)
 
+    # TODO milestone!
+    def display(self, zhedtree):
+        pass
+
 
 class App(tk.Frame):
     def __init__(self, title, master=None):
         super().__init__(master)
         self.master.title(title)
-        self.master.minsize(width=150, height=0)
+        self.master.minsize(width=150, height=0)  # NEEDS SOME THINKING
         self.master.grid_columnconfigure(0, weight=1)
         self.master.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -260,14 +359,18 @@ class App(tk.Frame):
         self.label_dimxdim.grid(column=1, row=1)
         self.entry_dimh.grid(column=2, row=1, sticky='ew')
 
+        def command_reset():
+            self.gridsol.grid_remove()
+            self.gridgame.grid_configure(columnspan=6)
+            self.gridgame.reset()
+
         def command_solve():
-            #res = self.gridgame.get()
-            # TODO CHECK RESULT
-            #zhed = Zhed(res)
-            #zhed.solve()
-            #print(zhed)
+            zhedtree = self.gridgame.get()
+            zhedtree.solve()
+            self.gridsol.display(zhedtree)
             self.gridsol.grid()
             self.gridgame.grid_configure(columnspan=3)
+
         def command_set():
             try:
                 w = int(self.entry_dimw.get())
@@ -281,6 +384,7 @@ class App(tk.Frame):
             self.gridsol.change_dim((w, h))
             self.gridsol.grid_remove()
             self.gridgame.grid_configure(columnspan=6)
+
         def command_start():
             try:
                 w = int(self.entry_dimw.get())
@@ -300,22 +404,21 @@ class App(tk.Frame):
 
             self.gridgame = GameGrid((w, h), master=self.lower)
             self.gridsol = SolGrid((w, h), master=self.lower)
-            self.button_reset = tk.Button(self.lower, text='Reset', bg='red', command=self.gridgame.reset)
+            self.button_reset = tk.Button(self.lower, text='Reset', bg='red', command=command_reset)
             self.button_solve = tk.Button(self.lower, text='Solve', bg=GameGrid.COLORS.GOAL, command=command_solve)
 
-            self.gridgame.grid(column=0, columnspan=6, row=0, sticky='nws')
-            self.gridsol.grid(column=3, columnspan=3, row=0, sticky='nes')
+            self.gridgame.grid(column=0, columnspan=6, row=0, padx=2)
+            self.gridsol.grid(column=3, columnspan=3, row=0, padx=2)
             self.gridsol.grid_remove()
 
-            self.button_reset.grid(column=0, columnspan=2, row=1, sticky='new')
-            self.button_solve.grid(column=2, columnspan=4, row=1, sticky='new')
+            self.button_reset.grid(column=0, columnspan=2, row=1, sticky='ew')
+            self.button_solve.grid(column=2, columnspan=4, row=1, sticky='ew')
             self.button_start.configure(text='Set dimensions', command=command_set)
 
         self.button_start = tk.Button(self.upper, text='Start', command=command_start)
-        self.button_start.grid(column=0, columnspan=3, row=2, sticky='new')
+        self.button_start.grid(column=0, columnspan=3, row=2, sticky='ew')
 
 
 if __name__ == '__main__':
     app = App('Zhed')
     app.mainloop()
-
