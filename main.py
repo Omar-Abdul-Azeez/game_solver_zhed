@@ -2,6 +2,7 @@ import tkinter as tk
 
 from enum import Enum
 from tkinter.messagebox import showerror
+from tkinter import font
 
 
 # TODO IMPLEMENTATION
@@ -140,18 +141,26 @@ class Grid(tk.Frame):
 
 
 class GameGrid(Grid):
-    def __init__(self, dim, master=None, size=None, size_type=None):
+    class COLORS():
+        UNUSED = '#E0EEC6'
+        GOAL = 'light green'
+        NORMAL = '#243E36'
+        TEXT = '#9CA68A'
+
+    def __init__(self, dim, master=None):
+        size = (25, 25)
+        size_type = GameGrid.CELL
         super().__init__(dim, GameGrid._btn_init, master=master, size=size, size_type=size_type)
 
     @staticmethod
     def _btn_init(master=None, *args, **kwargs):
-        btn = tk.Button(master=master, bg='grey')
+        btn = tk.Button(master=master, bg=GameGrid.COLORS.UNUSED, border=2, relief='groove')
         def _command():
-            if btn.cget('bg') == 'grey':
-                btn.configure(bg='green')
+            if btn.cget('bg') == GameGrid.COLORS.UNUSED:
+                btn.configure(bg=GameGrid.COLORS.GOAL, text='GOAL', font=font.Font(size=btn.master.cget('width') // 4, weight='bold'))
             else:
                 btn.destroy()
-                entry = tk.Entry(master=master)
+                entry = tk.Entry(master=master, bg=GameGrid.COLORS.NORMAL, fg=GameGrid.COLORS.TEXT, font=font.Font(size=12, weight='bold'), justify='center', border=2, relief='groove')
                 entry.grid(sticky='news')
         btn.configure(command=_command)
         return btn
@@ -165,6 +174,9 @@ class GameGrid(Grid):
 
     def reset(self):
         self.apply(GameGrid._reset)
+
+    def change_dim(self, dim):
+        super().change_dim(dim, True, conserve_size=True)
 
     # TODO REWRITE
     def get(self):
@@ -194,12 +206,30 @@ class GameGrid(Grid):
 
 
 class SolGrid(Grid):
-    def __init__(self, dim, master=None, size=None, size_type=None, *args, **kwargs):
-        super().__init__(dim, tk.Label, master=master, size=size, size_type=size_type, *args, **kwargs)
+    class COLORS():
+        UNUSED = '#E0EEC6'
+        GOAL = 'light green'
+        NORMAL = '#243E36'
+        TEXT = '#9CA68A'
+
+    def __init__(self, dim, master=None, *args, **kwargs):
+        size = (25, 25)
+        size_type = SolGrid.CELL
+        super().__init__(dim, SolGrid._lbl_init, master=master, size=size, size_type=size_type, *args, **kwargs)
+
+    @staticmethod
+    def _lbl_init(master=None, *args, **kwargs):
+        # normal cell font size = 12
+        # goal cell font size = 6
+        lbl = tk.Label(master=master, bg=SolGrid.COLORS.UNUSED, text='C', font=font.Font(size=12, weight='bold'), justify='center', border=2, relief='groove')
+        return lbl
 
     @staticmethod
     def _reset(label, index):
         pass
+
+    def change_dim(self, dim):
+        super().change_dim(dim, True, conserve_size=True)
 
 
 class App(tk.Frame):
@@ -247,8 +277,8 @@ class App(tk.Frame):
             except ValueError:
                 showerror('Dimension Error', 'Please enter positive integer dimensions!')
                 return
-            self.gridgame.change_dim((w, h), True, conserve_size=True)
-            self.gridsol.change_dim((w, h), True, conserve_size=True)
+            self.gridgame.change_dim((w, h))
+            self.gridsol.change_dim((w, h))
             self.gridsol.grid_remove()
             self.gridgame.grid_configure(columnspan=6)
         def command_start():
@@ -268,10 +298,10 @@ class App(tk.Frame):
                 self.lower.grid_rowconfigure(i, weight=1)
             self.lower.grid(column=0, row=1, sticky='news')
 
-            self.gridgame = GameGrid((w, h), master=self.lower, size=(25, 25), size_type=Grid.CELL)
-            self.gridsol = SolGrid((w, h), master=self.lower, size=(25, 25), size_type=Grid.CELL, text='cell')
-            self.button_reset = tk.Button(self.lower, text='Reset', command=self.gridgame.reset)
-            self.button_solve = tk.Button(self.lower, text='Solve', command=command_solve)
+            self.gridgame = GameGrid((w, h), master=self.lower)
+            self.gridsol = SolGrid((w, h), master=self.lower)
+            self.button_reset = tk.Button(self.lower, text='Reset', bg='red', command=self.gridgame.reset)
+            self.button_solve = tk.Button(self.lower, text='Solve', bg=GameGrid.COLORS.GOAL, command=command_solve)
 
             self.gridgame.grid(column=0, columnspan=6, row=0, sticky='nws')
             self.gridsol.grid(column=3, columnspan=3, row=0, sticky='nes')
